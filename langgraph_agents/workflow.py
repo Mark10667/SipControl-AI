@@ -113,4 +113,35 @@ def run_workflow(messages: List[BaseMessage]) -> Dict:
         "next_step": "core_agent",
         "drinking_status": None
     })
-    return result 
+    return result
+
+def display_workflow_flowchart():
+    """
+    Generates and displays a flow chart of the drinking assessment workflow using graphviz and IPython.display.
+    This function is intended for use in Jupyter notebooks or IPython environments.
+    """
+    try:
+        from graphviz import Digraph
+        from IPython.display import Image, display
+    except ImportError:
+        print("graphviz and IPython.display are required to display the flow chart. Please install them with 'pip install graphviz ipython'.")
+        return
+
+    dot = Digraph(comment='Drinking Assessment Workflow')
+    dot.node('A', 'Start')
+    dot.node('B', 'Input: messages')
+    dot.node('C', 'assess_drinking(messages)')
+    dot.node('D', 'Is user drinking?')
+    dot.node('E', 'provide_coping_strategies(messages, trigger_type)')
+    dot.node('F', 'Append AI response to messages')
+    dot.node('G', 'Return messages, status, trigger')
+
+    dot.edges(['AB', 'BC', 'CD'])
+    dot.edge('D', 'G', 'No')
+    dot.edge('D', 'E', 'Yes')
+    dot.edge('E', 'F')
+    dot.edge('F', 'G')
+
+    # Save and display
+    dot.render('workflow_chart', format='png', cleanup=True)
+    display(Image(filename='workflow_chart.png')) 
