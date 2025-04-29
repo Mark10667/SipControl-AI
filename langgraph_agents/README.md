@@ -1,72 +1,76 @@
-# Drinking Assessment and Support Agent Workflow
+# LangGraph Agents
 
-This project implements a LangGraph-based agent workflow for assessing and supporting users who may be drinking alcohol. The workflow consists of multiple agents that work together to:
+This folder contains the workflow and test scripts for the drinking assessment agent.
 
-1. Assess if a user is drinking based on chat history
-2. Provide coping strategies if drinking is detected
-3. End the conversation appropriately
+## Setup Instructions
 
-## Setup
-
-1. Create a virtual environment and activate it:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+### 1. Clone the repository (if you haven't already)
+```
+git clone <your-repo-url>
+cd SipControl-AI/langgraph_agents
 ```
 
-2. Install the required packages:
-```bash
+### 2. Create and activate the Python environment
+We recommend using conda to manage dependencies and ensure compatibility (Python 3.12 or lower is required for some packages):
+
+```
+conda create -n agent_py312 python=3.12 -y
+conda activate agent_py312
+```
+
+### 3. Install required Python packages
+```
 pip install -r requirements.txt
 ```
-
-3. Create a `.env` file in the project root and add your Azure OpenAI credentials:
+If you don't have a `requirements.txt`, install the following manually:
 ```
-AZURE_API_KEY=your_azure_api_key_here
-AZURE_ENDPOINT=your_azure_endpoint_here
-GPT4_DEPLOYMENT=your_gpt4_deployment_name_here
+pip install langchain-core langchain-openai python-dotenv graphviz ipython
 ```
 
-## Usage
+### 4. Install Graphviz system package
+Graphviz is required for flow chart visualization:
+- **macOS:**
+  ```
+  brew install graphviz
+  ```
+- **Ubuntu/Debian:**
+  ```
+  sudo apt-get install graphviz
+  ```
+- **Windows:**
+  Download and install from [Graphviz Downloads](https://graphviz.gitlab.io/download/)
 
-The workflow can be tested using the provided test script:
+### 5. Set up environment variables
+Create a `.env` file in this directory with your Azure OpenAI credentials:
+```
+AZURE_API_KEY=your_azure_api_key
+AZURE_ENDPOINT=your_azure_endpoint
+GPT4_DEPLOYMENT=your_gpt4_deployment_name
+```
 
-```bash
+## Running the Test Script
+
+To run the test workflow script, use:
+```
 python test_workflow.py
 ```
 
-To use the workflow in your own code:
+This will execute the test cases and print the results to the console.
 
+## Visualizing the Workflow
+
+To visualize the workflow as a flow chart, open the provided Jupyter notebook (or create one) and run:
 ```python
-from langchain_core.messages import HumanMessage
-from workflow import run_workflow
+from workflow import display_workflow_flowchart
 
-# Create a list of messages
-messages = [
-    HumanMessage(content="Your message here")
-]
-
-# Run the workflow
-result = run_workflow(messages)
-
-# Process the results
-for msg in result["messages"]:
-    print(f"{msg.type}: {msg.content}")
+display_workflow_flowchart()
 ```
 
-## Workflow Description
+## Troubleshooting
+- **ModuleNotFoundError:** If you see errors about missing modules (e.g., `langchain_core`), make sure you have installed all required Python packages in the active environment.
+- **ExecutableNotFound: 'dot':** If you see errors about `dot` not found, make sure you have installed the Graphviz system package and that it is on your system's PATH.
+- **Python version issues:** Some packages require Python 3.12 or lower. Use the provided conda environment instructions.
 
-The workflow follows this process:
+---
 
-1. **Core Agent**: Analyzes the chat history to determine if the user is drinking (using Azure OpenAI GPT-4)
-2. **Router**: Directs the flow based on the drinking assessment
-3. **Coping Solution Agent**: Provides support and coping strategies if drinking is detected (using Azure OpenAI GPT-4)
-4. **End Conversation**: Concludes the interaction appropriately
-
-## Customization
-
-You can modify the prompts and logic in `workflow.py` to adjust:
-
-- The assessment criteria for drinking behavior
-- The type of coping strategies provided
-- The conversation flow and responses
-- Azure OpenAI model parameters (temperature, deployment names, etc.) 
+For further help, please check the code comments or open an issue in the repository. 
