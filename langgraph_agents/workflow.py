@@ -6,6 +6,40 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import operator
 import os
 from enum import Enum, auto
+from pymongo import MongoClient
+import os
+import datetime
+
+# MongoDB setup (reuse your .env variables)
+MONGODB_URI = os.getenv("MONGODB_URI")
+MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "drink-agent-app")
+mongo_client = MongoClient(MONGODB_URI)
+db = mongo_client[MONGODB_DATABASE]
+agent_memory_collection = db["agent_memory"]
+
+def store_agent_memory(user_id, memory):
+    """Store agent memory in MongoDB."""
+    memory_doc = {
+        "user_id": user_id,
+        "memory": memory,
+        "timestamp": datetime.datetime.now()
+    }
+    agent_memory_collection.insert_one(memory_doc)
+
+# def get_latest_agent_memory(user_id):
+#     """Retrieve the latest agent memory for a user from MongoDB."""
+#     doc = agent_memory_collection.find_one(
+#         {"user_id": user_id},
+#         sort=[("timestamp", -1)]
+#     )
+#     return doc["memory"] if doc else {}
+
+def get_latest_agent_memory(user_id):
+    doc = agent_memory_collection.find_one(
+        {"user_id": user_id},
+        sort=[("_id", -1)]  # Use _id, which is always indexed
+    )
+    return doc["memory"] if doc else {}
 
 # Define trigger types as an Enum
 class TriggerType(str, Enum):
@@ -314,63 +348,6 @@ def router(state: AgentState) -> AgentState:
     state["next_step"] = get_next_step(state)
     return state
 
-# # Create the workflow graph
-# def create_workflow() -> Graph:
-#     # Initialize workflow graph
-#     workflow = StateGraph(AgentState)
-    
-#     # Add nodes
-#     workflow.add_node("core_agent", create_core_agent())
-#     workflow.add_node("router", router)
-#     workflow.add_node("trigger_identification", create_trigger_identification_agent())
-    
-#     # Add specialized coping strategy nodes
-#     workflow.add_node("stress_coping", create_stress_coping_agent())
-#     workflow.add_node("social_pressure_coping", create_social_pressure_coping_agent())
-#     workflow.add_node("boredom_coping", create_boredom_coping_agent())
-#     # Add more specialized coping nodes for other trigger types
-    
-#     workflow.add_node("default_coping", create_default_coping_agent())
-#     workflow.add_node("end_conversation", lambda x: x)
-    
-#     # Add edges
-#     workflow.add_edge("core_agent", "router")
-#     workflow.set_entry_point("core_agent")
-    
-#     # Add conditional edges from router
-#     workflow.add_conditional_edges(
-#         "router",
-#         get_next_step,
-#         {
-#             "identify_trigger": "trigger_identification",
-#             "if not drink": "end_conversation"
-#         }
-#     )
-    
-#     # Add conditional edges from trigger identification to appropriate coping strategy
-#     workflow.add_conditional_edges(
-#         "trigger_identification",
-#         get_coping_strategy,
-#         {
-#             "stress_coping": "stress_coping",
-#             "social_pressure_coping": "social_pressure_coping",
-#             "boredom_coping": "boredom_coping",
-#             #TODO: Add edges for other trigger types
-#             "default_coping": "default_coping"
-#         }
-#     )
-    
-#     # Add edges from all coping strategies to end
-#     workflow.add_edge("stress_coping", "end_conversation")
-#     workflow.add_edge("social_pressure_coping", "end_conversation")
-#     workflow.add_edge("boredom_coping", "end_conversation")
-#     # Add edges for other coping strategies
-#     workflow.add_edge("default_coping", "end_conversation")
-    
-#     # Set the final node
-#     workflow.set_finish_point("end_conversation")
-    
-#     return workflow.compile()
 # Create the workflow graph (uncompiled version)
 def create_workflow() -> StateGraph:
     # Initialize workflow graph
@@ -444,17 +421,20 @@ def create_workflow() -> StateGraph:
     return workflow  # Return uncompiled workflow
 
 # Function to run the workflow with memory persistence
-def run_workflow(messages: List[BaseMessage], thread_id: str = None) -> Dict:
+def run_workflow(messages: List[BaseMessage], user_id: str, thread_id: str = None) -> Dict:
     from langgraph.checkpoint.memory import MemorySaver
     
-    # Initialize memory saver for persistence
+    # Initialize memory saver for persistence (optional, if you want checkpointing)
     memory_saver = MemorySaver()
     
     # Create the uncompiled workflow
-    workflow = create_workflow()  # Use the existing create_workflow function
+    workflow = create_workflow()
     
     # Compile the workflow with memory saver
     app = workflow.compile(checkpointer=memory_saver)
+    
+    # Load latest memory from MongoDB
+    latest_memory = get_latest_agent_memory(user_id)
     
     # Prepare the initial state
     initial_state = {
@@ -462,7 +442,7 @@ def run_workflow(messages: List[BaseMessage], thread_id: str = None) -> Dict:
         "next_step": "core_agent",
         "drinking_status": None,
         "trigger_type": None,
-        "memory": {}
+        "memory": latest_memory  # <-- inject loaded memory
     }
     
     # Generate a default thread_id if none is provided
@@ -478,6 +458,12 @@ def run_workflow(messages: List[BaseMessage], thread_id: str = None) -> Dict:
         initial_state,
         config=config
     )
+    print("Result memory:", result.get("memory"))  # <--- Add this line
+
+    # Store updated memory back to MongoDB
+    store_agent_memory(user_id, result["memory"])
+
+    print("Stored memory:", get_latest_agent_memory(user_id))  # <--- Add this line
     
     return result
 
@@ -535,3 +521,46 @@ def display_workflow_flowchart():
     # Save and display
     dot.render('enhanced_workflow_chart', format='png', cleanup=True)
     display(Image(filename='enhanced_workflow_chart.png'))
+
+def insert_test_user(user_id: str, name: str = "Test User", email: str = "test@example.com"):
+    """Insert a test user into the users collection if not already present."""
+    users_collection = db["users"]
+    if users_collection.find_one({"user_id": user_id}):
+        print(f"User {user_id} already exists.")
+        return
+    user_profile = {
+        "user_id": user_id,
+        "name": name,
+        "email": email,
+        "created_at": datetime.datetime.now()
+    }
+    users_collection.insert_one(user_profile)
+    print(f"Inserted test user: {user_id}")
+
+def print_db_structure():
+    """Print the collections and a sample document from each collection in the current MongoDB database."""
+    print(f"Database: {db.name}")
+    collections = db.list_collection_names()
+    print("Collections:", collections)
+    for coll_name in collections:
+        coll = db[coll_name]
+        sample = coll.find_one()
+        print(f"\nCollection: {coll_name}")
+        if sample:
+            print("Sample document:", sample)
+        else:
+            print("(No documents)")
+
+test_cases = [
+    "I felt stressed and had a drink yesterday.",
+    "I was bored today.",
+    "I was at a party and everyone was drinking.",
+    "I felt lonely and wanted company.",
+    "I was tired after work."
+]
+
+for msg in test_cases:
+    messages = [HumanMessage(content=msg)]
+    result = run_workflow(messages, "test_user")
+    print(f"Input: {msg}")
+    print("Result memory:", result["memory"])
