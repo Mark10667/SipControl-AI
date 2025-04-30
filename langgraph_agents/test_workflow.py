@@ -3,11 +3,19 @@ from workflow import run_workflow, TriggerType
 from dotenv import load_dotenv
 import os
 from pathlib import Path
+from workflow import agent_memory_collection, get_latest_agent_memory, insert_test_user, agent_memory_collection
+from typing import List, Dict
 
 def main():
     # Load environment variables from parent directory
     dotenv_path = Path(__file__).parent.parent / '.env'
     load_dotenv(dotenv_path)
+    
+    # Clean up memory for test user before running tests
+    user_id = "test_user"
+    agent_memory_collection.delete_many({"user_id": user_id})
+    
+    insert_test_user(user_id, name="Test User", email="test@example.com")
     
     # Test cases for different trigger scenarios
     test_scenarios = {
@@ -57,7 +65,7 @@ def main():
     # Run tests for each scenario
     for scenario, messages in test_scenarios.items():
         print(f"\n\n--- Testing {scenario.upper()} scenario ---")
-        result = run_workflow(messages)
+        result = run_workflow(messages, user_id, thread_id)
         
         print("\nResult details:")
         print(f"Drinking status: {result['drinking_status']}")
@@ -71,13 +79,13 @@ def main():
     # Test memory persistence
     print("\n\n--- Testing MEMORY PERSISTENCE ---")
     print("First interaction:")
-    result_first = run_workflow(messages_first, thread_id=thread_id)
+    result_first = run_workflow(messages_first, user_id, thread_id)
     print(f"Drinking status: {result_first['drinking_status']}")
     if "trigger_type" in result_first:
         print(f"Identified trigger: {result_first['trigger_type']}")
     
     print("\nSecond interaction (same thread):")
-    result_second = run_workflow(messages_second, thread_id=thread_id)
+    result_second = run_workflow(messages_second, user_id, thread_id)
     print(f"Drinking status: {result_second['drinking_status']}")
     if "trigger_type" in result_second:
         print(f"Identified trigger: {result_second['trigger_type']}")
@@ -92,7 +100,7 @@ def test_individual_scenario(scenario_name, message_content):
     messages = [HumanMessage(content=message_content)]
     
     print(f"\n--- Testing custom {scenario_name} scenario ---")
-    result = run_workflow(messages)
+    result = run_workflow(messages, "test_user", "test_thread_123")
     
     print("\nResult details:")
     print(f"Drinking status: {result['drinking_status']}")
