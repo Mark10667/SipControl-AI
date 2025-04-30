@@ -1,6 +1,7 @@
 from typing import Annotated, Any, Dict, List, Tuple, TypedDict, Literal
-from langchain_core.messages import BaseMessage, HumanMessage
-from langgraph.graph import Graph, StateGraph, ToolNode
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langgraph.graph import Graph, StateGraph
+from langgraph.prebuilt import ToolNode
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import operator
@@ -8,6 +9,9 @@ import os
 from enum import Enum, auto
 from typing import Optional
 from datetime import datetime
+from langchain.tools import StructuredTool, Tool
+from typing_extensions import TypedDict
+import uuid
 
 # Define trigger types as an Enum
 class TriggerType(str, Enum):
@@ -26,16 +30,27 @@ class AgentState(TypedDict):
     user_id: str
     session_type: Literal["DAILY_CHECKIN", "RELAPSE_SUPPORT", "SUGGESTION_REQUEST", "OTHER"]
     start_time_local: datetime
-    start_time_system: datetime
-    end_time_local: Optional[datetime]
-    end_time_system: Optional[datetime]
+    # start_time_system: datetime
+    # end_time_local: Optional[datetime]
+    # end_time_system: Optional[datetime]
     beverage_logs: List[Dict[str, float]]  # {type: str, quantity: float, volume_ml: float, abv: float, total_pure_alcohol_ml: float}
     met_goal: bool
     agent_suggestion: List[str]
     conversation_ended: bool  # New field to track if conversation should end
+    step_counter: int  # Add this new field
+    debug_log: List[Dict[str, str]]  # Add this new field
 
-
-
+# Add this function to track tool usage
+def log_step(state: AgentState, step_name: str, details: str) -> None:
+    """Helper function to log steps in the conversation"""
+    if "debug_log" not in state:
+        state["debug_log"] = []
+    state["debug_log"].append({
+        "step": state["step_counter"],
+        "action": step_name,
+        "details": details,
+        "next_action": state["next_step"]  # Add the next action
+    })
 
 def get_azure_chat_model(temperature=0):
     return AzureChatOpenAI(
@@ -47,69 +62,93 @@ def get_azure_chat_model(temperature=0):
     )
 
 # Core agent that processes the conversation and makes initial assessment
+def core_agent(state: AgentState) -> AgentState:
+    # Increment counter
+    state["step_counter"] = state.get("step_counter", 0) + 1
+    
+    # Check for max steps
+    MAX_STEPS = 10
+    if state["step_counter"] >= MAX_STEPS:
+        log_step(state, "core_agent", f"Reached maximum steps ({MAX_STEPS}). Ending conversation.")
+        state["conversation_ended"] = True
+        state["next_step"] = "end"
+        state["messages"].append(AIMessage(content="I apologize, but I need to end this conversation loop. Please feel free to start a new conversation if you need more assistance."))
+        return state
+    
+    # Create context summary from state using only existing fields
+    context_summary = f"""
+    Current conversation state:
+    - Session type: {state['session_type']}
+    - Beverage logs: {state['beverage_logs']}
+    - Goal status: {'Met' if state.get('met_goal') else 'Not met' if state.get('met_goal') is False else 'Not evaluated'}
+    - Identified trigger: {state.get('trigger_type', 'Not identified')}
+    """
 
-def create_core_agent():
     prompt = ChatPromptTemplate.from_messages([
         ("system", '''
-You are SipControl, an empathetic AI assistant that helps users manage their alcohol consumption and build healthier drinking habits.
+        You are SipControl, an empathetic AI assistant that helps users manage their alcohol consumption and build healthier drinking habits.
 
-Your role is to be the central coordinator of the conversation. You have access to the following tools:
-1. alcohol_calculator: Calculate and track alcohol consumption
-2. trigger_detector: Identify triggers for drinking behavior
-3. stress_coping_agent: Provide stress management strategies
-4. social_pressure_coping_agent: Help with social pressure situations
-5. boredom_coping_agent: Suggest activities to combat boredom
+        Your role is to be the central coordinator of the conversation. You have access to the following tools:
+        1. alcohol_calculator: Calculate and track alcohol consumption
+        2. trigger_detector: Identify triggers for drinking behavior
+        3. stress_coping_agent: Provide stress management strategies
+        4. social_pressure_coping_agent: Help with social pressure situations
+        5. boredom_coping_agent: Suggest activities to combat boredom
 
-For each user message:
-1. Assess if they're discussing alcohol consumption
-   - If yes, use alcohol_calculator to track and evaluate
-   - Update beverage_logs with the results
-2. If they're struggling or went over their goal:
-   - Use trigger_detector to identify the cause
-   - Based on the trigger, call the appropriate coping agent
-3. Maintain a supportive, conversational tone
-4. Decide if the conversation should continue or end
+        IMPORTANT: Before responding, review the current conversation state.
+        - If beverage logs exist, acknowledge and reference the drinking information
+        - If a trigger has been identified, use the appropriate coping strategy
+        - Maintain continuity in the conversation
 
-Return your response in this format:
-CONTINUE or END
----
-Your message to the user
----
-Tool calls needed (if any):
-tool1: parameters
-tool2: parameters
+        For each user message:
+        1. Assess if they're discussing alcohol consumption
+        - If yes, use alcohol_calculator to track and evaluate
+        - Update beverage_logs with the results
+        2. If they're struggling or went over their goal:
+        - Use trigger_detector to identify the cause
+        - Based on the trigger, call the appropriate coping agent
+        3. Maintain a supportive, conversational tone
+        4. Decide if the conversation should continue or end
+
+        Return your response in this format:
+        CONTINUE or END
+        ---
+        Your message to the user
+        ---
+        Tool calls needed (if any):
+        tool1: parameters
+        tool2: parameters
         '''),
+        ("system", context_summary),  # Add the context summary as a system message
         MessagesPlaceholder(variable_name="messages"),
     ])
     
     model = get_azure_chat_model(temperature=0.7)
     chain = prompt | model
     
-    def core_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        
-        # Parse the response
-        parts = response.content.split('---')
-        status = parts[0].strip()
-        message = parts[1].strip()
-        tool_calls = parts[2].strip() if len(parts) > 2 else ""
-        
-        # Update state
-        state["conversation_ended"] = (status == "END")
-        state["messages"].append(HumanMessage(content=message))
-        
-        # Parse tool calls if any
-        if tool_calls:
-            state["next_step"] = "tool_node"
-        else:
-            state["next_step"] = "end" if state["conversation_ended"] else "core_agent"
-        
-        return state
+    response = chain.invoke({"messages": state["messages"]})
     
-    return core_agent
-
-
-
+    parts = response.content.split('---')
+    status = parts[0].strip()
+    message = parts[1].strip()
+    tool_calls = parts[2].strip() if len(parts) > 2 else ""
+    
+    if tool_calls:
+        state["next_step"] = "tool_node"
+    else:
+        state["next_step"] = "core_agent" if not state["conversation_ended"] else "end"
+    
+    # Move log_step here after next_step is determined
+    log_step(state, "core_agent", f"""
+    Status: {status}
+    Message: {message}
+    Tool Calls: {tool_calls if tool_calls else 'None'}
+    """)
+    
+    state["conversation_ended"] = (status == "END")
+    state["messages"].append(AIMessage(content=message))
+    
+    return state
 
 # Reference ABV table (can expand later)
 ABV_LOOKUP = {
@@ -133,12 +172,13 @@ VOLUME_LOOKUP = {
 }
 
 def alcohol_calculator(
+    state: AgentState,
     beverage_type: str,
     quantity: int,
     volume_ml_per_unit: int = None,
     abv: float = None,
-    daily_goal_ml: float = 30.0  # e.g. ~2 standard drinks worth of pure alcohol
-) -> Dict:
+    daily_goal_ml: float = 30.0
+) -> AgentState:
     """
     Estimate alcohol consumption and compare to goal.
     """
@@ -155,166 +195,193 @@ def alcohol_calculator(
 
     met_goal = total_pure_alcohol_ml <= daily_goal_ml
 
-    return {
+    feedback = "Goal met! Well done." if met_goal else "You went over the goal today, but it's okay — let's reflect on what happened."
+
+    result = {
         "beverage_type": beverage_type,
         "quantity": quantity,
         "volume_ml_per_unit": volume_ml_per_unit,
         "abv": abv,
         "total_pure_alcohol_ml": round(total_pure_alcohol_ml, 2),
         "met_goal": met_goal,
-        "feedback": "Goal met! Well done." if met_goal else "You went over the goal today, but it's okay — let's reflect on what happened."
+        "feedback": feedback
     }
+    state["beverage_logs"].append(result)
+    state["met_goal"] = met_goal
+    state["next_step"] = "core_agent"
 
+    log_step(state, "alcohol_calculator", f"Calculating consumption for {quantity} {beverage_type}")
 
+    return state
 
 # Trigger identification agent
-def create_trigger_identification_agent():
+def trigger_detector(state: AgentState) -> AgentState:
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an AI assistant specialized in identifying potential triggers for alcohol consumption. "
-                  "Based on the conversation, identify the most likely trigger from the following options: "
-                  "stress, social_pressure, boredom. "
-                  "If none seem applicable, respond with 'unknown'."),
+        ("system", '''
+        You are a behavioral health AI assistant with expertise in addiction psychology and relapse prevention. 
+        Your role is to analyze user conversations and identify the most likely psychological trigger behind alcohol use episodes.
+
+        Based on the conversation, identify the most likely trigger from these options:
+        - stress
+        - social_pressure
+        - boredom
+        If none apply, respond with 'unknown'.
+
+        Return your response in this format:
+        TRIGGER_TYPE
+        ---
+        Brief explanation of why you identified this trigger
+        '''),
         MessagesPlaceholder(variable_name="messages"),
-        ("system", "Based on the chat history, what seems to be the most likely trigger? "
-                  "Respond with exactly one word from the list of triggers provided.")
     ])
     
     model = get_azure_chat_model(temperature=0.3)
     chain = prompt | model
     
-    def trigger_agent(state: AgentState) -> AgentState:
-        # Check memory first to see if we've already identified a pattern
-        if state.get("memory", {}).get("common_triggers"):
-            common_triggers = state["memory"]["common_triggers"]
-            # Use memory to influence the identification (simplified logic)
-            # In a real implementation, this would be more sophisticated
-            
-        response = chain.invoke({"messages": state["messages"]})
-        trigger = response.content.strip().lower()
-        
-        # Map response to TriggerType enum
-        try:
-            state["trigger_type"] = TriggerType(trigger)
-        except ValueError:
-            state["trigger_type"] = TriggerType.UNKNOWN
-            
-        # Update memory with this trigger
-        if "memory" not in state:
-            state["memory"] = {}
-        if "trigger_history" not in state["memory"]:
-            state["memory"]["trigger_history"] = []
-            
-        # Add this trigger to history
-        state["memory"]["trigger_history"].append(state["trigger_type"])
-        
-        # If we have enough history, identify common patterns
-        if len(state["memory"]["trigger_history"]) >= 3:
-            from collections import Counter
-            trigger_counts = Counter(state["memory"]["trigger_history"])
-            common_triggers = [t for t, c in trigger_counts.most_common(2)]
-            state["memory"]["common_triggers"] = common_triggers
-            
-        return state
+    response = chain.invoke({"messages": state["messages"]})
     
-    return trigger_agent
-
-
-
-
-
-
-
-
-
-
+    parts = response.content.split('---')
+    trigger = parts[0].strip().lower()
+    explanation = parts[1].strip() if len(parts) > 1 else ""
+    
+    try:
+        state["trigger_type"] = TriggerType(trigger)
+    except ValueError:
+        state["trigger_type"] = TriggerType.UNKNOWN
+    
+    state["messages"].append(HumanMessage(content=explanation))
+    state["next_step"] = "core_agent"
+    
+    # Move log_step here after next_step is assigned
+    log_step(state, "trigger_detector", "Analyzing conversation for triggers")
+    return state
 
 # Create specialized coping strategy agents for each trigger type
-def create_stress_coping_agent():
+def stress_coping(state: AgentState) -> AgentState:
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant specialized in helping users manage stress without alcohol. "
-                  "Provide compassionate, practical stress-reduction strategies such as deep breathing exercises, "
-                  "progressive muscle relaxation, and guided imagery."),
+        ("system", '''
+        You are a behavioral health AI assistant specialized in helping users manage stress without turning to alcohol. 
+        With expertise in stress psychology and self-regulation techniques, your goal is to offer practical, supportive strategies that reduce anxiety and tension.
+         
+        Provide compassionate, practical stress-reduction strategies such as:
+        - Deep breathing exercises
+        - Progressive muscle relaxation
+        - Guided imagery
+        - Mindfulness techniques
+
+        Return your response in this format:
+        CONTINUE
+        ---
+        Your supportive message with specific stress management strategies
+        '''),
         MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be drinking due to stress. What stress management strategies would you suggest?")
     ])
     
     model = get_azure_chat_model(temperature=0.7)
     chain = prompt | model
     
-    def stress_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
+    response = chain.invoke({"messages": state["messages"]})
+    state["messages"].append(AIMessage(content=response.content))
+    state["next_step"] = "core_agent"
     
-    return stress_agent
+    # Move log_step here
+    log_step(state, "stress_coping", "Providing stress management strategies")
+    return state
 
-
-
-def create_social_pressure_coping_agent():
+def social_pressure_coping(state: AgentState) -> AgentState:
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant specialized in helping users resist social pressure to drink. "
-                  "Provide strategies for assertive refusal skills and suggestions for alternative social activities."),
+        ("system", '''
+        You are a behavioral health AI assistant specialized in helping users resist social pressure to drink. 
+        You understand the dynamics of peer influence, confidence building, and healthy boundary setting.
+                
+        Provide strategies for:
+        - Assertive refusal skills
+        - Alternative social activities
+        - Managing peer pressure
+        - Building confidence in social situations
+
+        Return your response in this format:
+        CONTINUE
+        ---
+        Your supportive message with specific social pressure management strategies
+        '''),
         MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be drinking due to social pressure. What strategies would you suggest?")
     ])
     
     model = get_azure_chat_model(temperature=0.7)
     chain = prompt | model
     
-    def social_pressure_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
+    response = chain.invoke({"messages": state["messages"]})
+    state["messages"].append(AIMessage(content=response.content))
+    state["next_step"] = "core_agent"
     
-    return social_pressure_agent
+    # Move log_step here
+    log_step(state, "social_pressure_coping", "Providing social pressure management strategies")
+    return state
 
-
-def create_boredom_coping_agent():
+def boredom_coping(state: AgentState) -> AgentState:
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant specialized in helping users address boredom without alcohol. "
-                  "Provide engaging hobby ideas and mindfulness practices to prevent boredom-induced drinking."),
+        ("system", '''
+        You are a behavioral health AI assistant focused on helping users address boredom without resorting to alcohol. 
+        You understand how boredom can lead to unhealthy coping, and aim to redirect users toward rewarding, stimulating alternatives.
+                
+        Provide engaging alternatives such as:
+        - Hobby suggestions
+        - Physical activities
+        - Creative projects
+        - Social connections
+        - Learning opportunities
+
+        Return your response in this format:
+        CONTINUE
+        ---
+        Your supportive message with specific activity suggestions and engagement strategies
+        '''),
         MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be drinking due to boredom. What alternative activities would you suggest?")
     ])
     
     model = get_azure_chat_model(temperature=0.7)
     chain = prompt | model
     
-    def boredom_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
+    response = chain.invoke({"messages": state["messages"]})
+    state["messages"].append(AIMessage(content=response.content))
+    state["next_step"] = "core_agent"
     
-    return boredom_agent
+    # Move log_step here
+    log_step(state, "boredom_coping", "Providing boredom management strategies")
+    return state
 
 # Default coping solution agent for unknown triggers
-def create_default_coping_agent():
+def default_coping(state: AgentState) -> AgentState:
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant helping users who are drinking or considering drinking alcohol. "
-                  "Provide compassionate, practical coping strategies and alternatives to drinking."),
+        ("system", '''
+        You are a supportive behavioral health AI assistant helping users who are drinking or considering drinking, but whose trigger is unclear. 
+        Your goal is to offer grounding, holistic strategies that promote well-being, reflection, and healthy alternatives to alcohol.
+                
+        Focus on:
+        - General wellness strategies
+        - Healthy alternatives to drinking
+        - Building resilience
+        - Self-reflection techniques
+
+        Return your response in this format:
+        CONTINUE
+        ---
+        Your supportive message with general coping strategies and encouragement
+        '''),
         MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be drinking. What coping strategies would you suggest?")
     ])
     
     model = get_azure_chat_model(temperature=0.7)
     chain = prompt | model
     
-    def default_coping_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
+    response = chain.invoke({"messages": state["messages"]})
+    state["messages"].append(AIMessage(content=response.content))
+    state["next_step"] = "core_agent"
     
-    return default_coping_agent
-
-# Function to determine next step based on drinking status
-def get_next_step(state: AgentState) -> str:
-    if not state["END"]:
-        return "END"
-    return "continue_core_agent"
+    # Move log_step here
+    log_step(state, "default_coping", "Providing general coping strategies")
+    return state
 
 # Updated function to route to appropriate coping agent based on trigger type
 def get_coping_strategy(state: AgentState) -> str:
@@ -327,27 +394,52 @@ def get_coping_strategy(state: AgentState) -> str:
     else:
         return "default_coping"
 
-# Router node that updates state and returns next step
-def router(state: AgentState) -> AgentState:
-    state["next_step"] = get_next_step(state)
-    return state
+# # Router node that updates state and returns next step
+# def router(state: AgentState) -> AgentState:
+#     state["next_step"] = get_next_step(state)
+#     return state
+def create_tool_registry():
+    """Return a list of Tool objects"""
+    return [
+        Tool.from_function(
+            func=alcohol_calculator,
+            name="alcohol_calculator",
+            description="Calculate alcohol consumption and compare to daily goal"
+        ),
+        Tool.from_function(
+            func=trigger_detector,
+            name="trigger_detector",
+            description="Identify triggers for drinking behavior"
+        ),
+        Tool.from_function(
+            func=stress_coping,
+            name="stress_coping",
+            description="Provide stress management strategies"
+        ),
+        Tool.from_function(
+            func=social_pressure_coping,
+            name="social_pressure_coping",
+            description="Help with social pressure situations"
+        ),
+        Tool.from_function(
+            func=boredom_coping,
+            name="boredom_coping",
+            description="Suggest activities to combat boredom"
+        ),
+        Tool.from_function(
+            func=default_coping,
+            name="default_coping",
+            description="Provide general coping strategies"
+        )
+    ]
 
-# Create the workflow graph (uncompiled version)
+# Then update the create_workflow function
 def create_workflow() -> StateGraph:
     workflow = StateGraph(AgentState)
     
-    # Define available tools
-    tool_registry = {
-        "alcohol_calculator": alcohol_calculator,
-        "trigger_detector": create_trigger_identification_agent(),
-        "stress_coping_agent": create_stress_coping_agent(),
-        "social_pressure_coping_agent": create_social_pressure_coping_agent(),
-        "boredom_coping_agent": create_boredom_coping_agent(),
-    }
-    
     # Create nodes
-    workflow.add_node("core_agent", create_core_agent())
-    workflow.add_node("tool_node", ToolNode(tool_registry))
+    workflow.add_node("core_agent", core_agent)
+    workflow.add_node("tool_node", ToolNode(create_tool_registry()))
     workflow.add_node("end", lambda x: x)
     
     # Set entry point
@@ -370,43 +462,53 @@ def create_workflow() -> StateGraph:
     # Set finish point
     workflow.set_finish_point("end")
     
-    return workflow  # Return uncompiled workflow
+    return workflow
 
 # Function to run the workflow with memory persistence
 def run_workflow(messages: List[BaseMessage], thread_id: str = None) -> Dict:
-    from langgraph.checkpoint.memory import MemorySaver
     
-    # Initialize memory saver for persistence
-    memory_saver = MemorySaver()
     
     # Create the uncompiled workflow
     workflow = create_workflow()  # Use the existing create_workflow function
     
-    # Compile the workflow with memory saver
-    app = workflow.compile(checkpointer=memory_saver)
-    
-    # Prepare the initial state
+    # Prepare the initial state with all required fields
     initial_state = {
         "messages": messages,
         "next_step": "core_agent",
         "met_goal": None,
         "trigger_type": None,
-        "memory": {}
+        "memory": {},
+        "step_counter": 0,
+        "session_id": thread_id or str(uuid.uuid4()),
+        "user_id": "",
+        "session_type": "DAILY_CHECKIN",
+        "start_time_local": datetime.now(),
+        # "start_time_system": datetime.utcnow(),
+        # "end_time_local": None,
+        # "end_time_system": None,
+        "beverage_logs": [],
+        "agent_suggestion": [],
+        "conversation_ended": False,
+        "debug_log": []  # Add this field
     }
     
-    # Generate a default thread_id if none is provided
-    if thread_id is None:
-        import uuid
-        thread_id = str(uuid.uuid4())
-    
-    # Configure the thread_id for the checkpointer
-    config = {"configurable": {"thread_id": thread_id}}
+    # Compile the workflow with memory saver
+    app = workflow.compile()
     
     # Invoke the app with memory persistence
     result = app.invoke(
-        initial_state,
-        config=config
+        initial_state
     )
+    
+    # Print debug information
+    if "debug_log" in result:
+        print("\n=== Debug Log ===")
+        for entry in result["debug_log"]:
+            print(f"\nStep {entry['step']}:")
+            print(f"Action: {entry['action']}")
+            print(f"Details: {entry['details']}")
+            print(f"Next Action: {entry['next_action']}")
+        print("===============")
     
     return result
 
