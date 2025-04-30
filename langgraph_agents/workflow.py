@@ -112,6 +112,7 @@ def create_trigger_identification_agent():
             # In a real implementation, this would be more sophisticated
             
         response = chain.invoke({"messages": state["messages"]})
+        print("LLM output for trigger:", response.content)
         trigger = response.content.strip().lower()
         
         # Map response to TriggerType enum
@@ -423,48 +424,38 @@ def create_workflow() -> StateGraph:
 # Function to run the workflow with memory persistence
 def run_workflow(messages: List[BaseMessage], user_id: str, thread_id: str = None) -> Dict:
     from langgraph.checkpoint.memory import MemorySaver
-    
-    # Initialize memory saver for persistence (optional, if you want checkpointing)
-    memory_saver = MemorySaver()
-    
-    # Create the uncompiled workflow
-    workflow = create_workflow()
-    
-    # Compile the workflow with memory saver
-    app = workflow.compile(checkpointer=memory_saver)
-    
-    # Load latest memory from MongoDB
+
+    # Only read from MongoDB at the start
     latest_memory = get_latest_agent_memory(user_id)
-    
+
     # Prepare the initial state
     initial_state = {
         "messages": messages,
         "next_step": "core_agent",
         "drinking_status": None,
         "trigger_type": None,
-        "memory": latest_memory  # <-- inject loaded memory
+        "memory": latest_memory  # hydrate from DB
     }
-    
+
     # Generate a default thread_id if none is provided
     if thread_id is None:
         import uuid
         thread_id = str(uuid.uuid4())
-    
+
     # Configure the thread_id for the checkpointer
     config = {"configurable": {"thread_id": thread_id}}
-    
-    # Invoke the app with memory persistence
-    result = app.invoke(
-        initial_state,
-        config=config
-    )
-    print("Result memory:", result.get("memory"))  # <--- Add this line
 
-    # Store updated memory back to MongoDB
+    # Create the uncompiled workflow
+    workflow = create_workflow()
+    memory_saver = MemorySaver()
+    app = workflow.compile(checkpointer=memory_saver)
+
+    # Run the workflow (all memory updates are in-memory for this session)
+    result = app.invoke(initial_state, config=config)
+
+    # Only write to MongoDB at the end
     store_agent_memory(user_id, result["memory"])
 
-    print("Stored memory:", get_latest_agent_memory(user_id))  # <--- Add this line
-    
     return result
 
 def display_workflow_flowchart():
@@ -550,17 +541,3 @@ def print_db_structure():
             print("Sample document:", sample)
         else:
             print("(No documents)")
-
-test_cases = [
-    "I felt stressed and had a drink yesterday.",
-    "I was bored today.",
-    "I was at a party and everyone was drinking.",
-    "I felt lonely and wanted company.",
-    "I was tired after work."
-]
-
-for msg in test_cases:
-    messages = [HumanMessage(content=msg)]
-    result = run_workflow(messages, "test_user")
-    print(f"Input: {msg}")
-    print("Result memory:", result["memory"])
