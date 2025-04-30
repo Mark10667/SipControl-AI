@@ -1,30 +1,41 @@
-from typing import Annotated, Any, Dict, List, Tuple, TypedDict
+from typing import Annotated, Any, Dict, List, Tuple, TypedDict, Literal
 from langchain_core.messages import BaseMessage, HumanMessage
-from langgraph.graph import Graph, StateGraph
+from langgraph.graph import Graph, StateGraph, ToolNode
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import operator
 import os
 from enum import Enum, auto
+from typing import Optional
+from datetime import datetime
 
 # Define trigger types as an Enum
 class TriggerType(str, Enum):
     STRESS = "stress"
     SOCIAL_PRESSURE = "social_pressure"
     BOREDOM = "boredom"
-    NEGATIVE_EMOTIONS = "negative_emotions"
-    FATIGUE = "fatigue"
-    CELEBRATIONS = "celebrations"
-    LONELINESS = "loneliness"
-    HABITUAL_PATTERNS = "habitual_patterns"
     UNKNOWN = "unknown"
 
 class AgentState(TypedDict):
     messages: List[BaseMessage]
     next_step: str
-    drinking_status: bool | None
-    trigger_type: TriggerType | None
+    # drinking_status: Optional[bool]
+    trigger_type: Optional[TriggerType]
     memory: Dict[str, Any]  # For storing user preferences and history
+    session_id: str
+    user_id: str
+    session_type: Literal["DAILY_CHECKIN", "RELAPSE_SUPPORT", "SUGGESTION_REQUEST", "OTHER"]
+    start_time_local: datetime
+    start_time_system: datetime
+    end_time_local: Optional[datetime]
+    end_time_system: Optional[datetime]
+    beverage_logs: List[Dict[str, float]]  # {type: str, quantity: float, volume_ml: float, abv: float, total_pure_alcohol_ml: float}
+    met_goal: bool
+    agent_suggestion: List[str]
+    conversation_ended: bool  # New field to track if conversation should end
+
+
+
 
 def get_azure_chat_model(temperature=0):
     return AzureChatOpenAI(
@@ -36,31 +47,132 @@ def get_azure_chat_model(temperature=0):
     )
 
 # Core agent that processes the conversation and makes initial assessment
+
 def create_core_agent():
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an AI assistant helping assess if a user is drinking alcohol or not based on their chat history. "
-                  "Analyze the conversation carefully and determine if there are any mentions or indications of alcohol consumption."),
+        ("system", '''
+You are SipControl, an empathetic AI assistant that helps users manage their alcohol consumption and build healthier drinking habits.
+
+Your role is to be the central coordinator of the conversation. You have access to the following tools:
+1. alcohol_calculator: Calculate and track alcohol consumption
+2. trigger_detector: Identify triggers for drinking behavior
+3. stress_coping_agent: Provide stress management strategies
+4. social_pressure_coping_agent: Help with social pressure situations
+5. boredom_coping_agent: Suggest activities to combat boredom
+
+For each user message:
+1. Assess if they're discussing alcohol consumption
+   - If yes, use alcohol_calculator to track and evaluate
+   - Update beverage_logs with the results
+2. If they're struggling or went over their goal:
+   - Use trigger_detector to identify the cause
+   - Based on the trigger, call the appropriate coping agent
+3. Maintain a supportive, conversational tone
+4. Decide if the conversation should continue or end
+
+Return your response in this format:
+CONTINUE or END
+---
+Your message to the user
+---
+Tool calls needed (if any):
+tool1: parameters
+tool2: parameters
+        '''),
         MessagesPlaceholder(variable_name="messages"),
-        ("system", "Based on the chat history, determine if the user is drinking or not. "
-                  "Respond with 'DRINKING' if you detect alcohol consumption, 'NOT_DRINKING' if you don't.")
     ])
     
-    model = get_azure_chat_model(temperature=0)
+    model = get_azure_chat_model(temperature=0.7)
     chain = prompt | model
     
     def core_agent(state: AgentState) -> AgentState:
         response = chain.invoke({"messages": state["messages"]})
-        state["drinking_status"] = response.content == "DRINKING"
+        
+        # Parse the response
+        parts = response.content.split('---')
+        status = parts[0].strip()
+        message = parts[1].strip()
+        tool_calls = parts[2].strip() if len(parts) > 2 else ""
+        
+        # Update state
+        state["conversation_ended"] = (status == "END")
+        state["messages"].append(HumanMessage(content=message))
+        
+        # Parse tool calls if any
+        if tool_calls:
+            state["next_step"] = "tool_node"
+        else:
+            state["next_step"] = "end" if state["conversation_ended"] else "core_agent"
+        
         return state
     
     return core_agent
+
+
+
+
+# Reference ABV table (can expand later)
+ABV_LOOKUP = {
+    "beer": 0.05,
+    "light_beer": 0.04,
+    "wine": 0.12,
+    "red_wine": 0.13,
+    "white_wine": 0.11,
+    "cabernet": 0.13,
+    "vodka": 0.4,
+    "whiskey": 0.4,
+    "cocktail": 0.2
+}
+
+# Default volume (ml) per unit type
+VOLUME_LOOKUP = {
+    "glass": 150,
+    "bottle": 750,
+    "can": 355,
+    "shot": 45
+}
+
+def alcohol_calculator(
+    beverage_type: str,
+    quantity: int,
+    volume_ml_per_unit: int = None,
+    abv: float = None,
+    daily_goal_ml: float = 30.0  # e.g. ~2 standard drinks worth of pure alcohol
+) -> Dict:
+    """
+    Estimate alcohol consumption and compare to goal.
+    """
+    beverage_type = beverage_type.lower()
+
+    # Infer defaults if needed
+    if abv is None:
+        abv = ABV_LOOKUP.get(beverage_type, 0.12)
+    if volume_ml_per_unit is None:
+        volume_ml_per_unit = VOLUME_LOOKUP.get("glass", 150)
+
+    total_volume = quantity * volume_ml_per_unit
+    total_pure_alcohol_ml = total_volume * abv
+
+    met_goal = total_pure_alcohol_ml <= daily_goal_ml
+
+    return {
+        "beverage_type": beverage_type,
+        "quantity": quantity,
+        "volume_ml_per_unit": volume_ml_per_unit,
+        "abv": abv,
+        "total_pure_alcohol_ml": round(total_pure_alcohol_ml, 2),
+        "met_goal": met_goal,
+        "feedback": "Goal met! Well done." if met_goal else "You went over the goal today, but it's okay — let's reflect on what happened."
+    }
+
+
 
 # Trigger identification agent
 def create_trigger_identification_agent():
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are an AI assistant specialized in identifying potential triggers for alcohol consumption. "
                   "Based on the conversation, identify the most likely trigger from the following options: "
-                  "stress, social_pressure, boredom, negative_emotions, fatigue, celebrations, loneliness, habitual_patterns. "
+                  "stress, social_pressure, boredom. "
                   "If none seem applicable, respond with 'unknown'."),
         MessagesPlaceholder(variable_name="messages"),
         ("system", "Based on the chat history, what seems to be the most likely trigger? "
@@ -106,6 +218,16 @@ def create_trigger_identification_agent():
     
     return trigger_agent
 
+
+
+
+
+
+
+
+
+
+
 # Create specialized coping strategy agents for each trigger type
 def create_stress_coping_agent():
     prompt = ChatPromptTemplate.from_messages([
@@ -127,6 +249,8 @@ def create_stress_coping_agent():
     
     return stress_agent
 
+
+
 def create_social_pressure_coping_agent():
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are a supportive AI assistant specialized in helping users resist social pressure to drink. "
@@ -146,6 +270,7 @@ def create_social_pressure_coping_agent():
     
     return social_pressure_agent
 
+
 def create_boredom_coping_agent():
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are a supportive AI assistant specialized in helping users address boredom without alcohol. "
@@ -164,103 +289,6 @@ def create_boredom_coping_agent():
         return state
     
     return boredom_agent
-
-# Add the missing coping agent functions
-
-def create_negative_emotions_coping_agent():
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant specialized in helping users manage negative emotions without alcohol. "
-                  "Provide compassionate strategies for emotional awareness, acceptance, and healthy coping mechanisms like journaling."),
-        MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be drinking due to negative emotions. What emotional coping strategies would you suggest?")
-    ])
-    
-    model = get_azure_chat_model(temperature=0.7)
-    chain = prompt | model
-    
-    def negative_emotions_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
-    
-    return negative_emotions_agent
-
-def create_fatigue_coping_agent():
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant specialized in helping users manage fatigue without alcohol. "
-                  "Provide effective sleep hygiene tips, energy-boosting activities, and nutritional advice."),
-        MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be drinking due to fatigue. What energy management strategies would you suggest?")
-    ])
-    
-    model = get_azure_chat_model(temperature=0.7)
-    chain = prompt | model
-    
-    def fatigue_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
-    
-    return fatigue_agent
-
-def create_celebrations_coping_agent():
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant specialized in helping users navigate celebrations without alcohol. "
-                  "Provide ideas for alcohol-free events, non-alcoholic beverage options, and setting personal boundaries."),
-        MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be concerned about drinking at celebrations. What alcohol-free celebration strategies would you suggest?")
-    ])
-    
-    model = get_azure_chat_model(temperature=0.7)
-    chain = prompt | model
-    
-    def celebrations_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
-    
-    return celebrations_agent
-
-def create_loneliness_coping_agent():
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant specialized in helping users cope with loneliness without alcohol. "
-                  "Provide strategies for social connection, volunteering opportunities, and meaningful solitary activities."),
-        MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be drinking due to loneliness. What social connection strategies would you suggest?")
-    ])
-    
-    model = get_azure_chat_model(temperature=0.7)
-    chain = prompt | model
-    
-    def loneliness_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
-    
-    return loneliness_agent
-
-def create_habitual_patterns_coping_agent():
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a supportive AI assistant specialized in helping users break habitual drinking patterns. "
-                  "Provide habit tracking methods, ideas for new rituals, and mindfulness techniques for habit disruption."),
-        MessagesPlaceholder(variable_name="messages"),
-        ("human", "The user appears to be drinking out of habit. What habit-breaking strategies would you suggest?")
-    ])
-    
-    model = get_azure_chat_model(temperature=0.7)
-    chain = prompt | model
-    
-    def habitual_patterns_agent(state: AgentState) -> AgentState:
-        response = chain.invoke({"messages": state["messages"]})
-        state["messages"].append(response)
-        state["next_step"] = "end"
-        return state
-    
-    return habitual_patterns_agent
 
 # Default coping solution agent for unknown triggers
 def create_default_coping_agent():
@@ -284,9 +312,9 @@ def create_default_coping_agent():
 
 # Function to determine next step based on drinking status
 def get_next_step(state: AgentState) -> str:
-    if state["drinking_status"]:
-        return "identify_trigger"
-    return "if not drink"
+    if not state["END"]:
+        return "END"
+    return "continue_core_agent"
 
 # Updated function to route to appropriate coping agent based on trigger type
 def get_coping_strategy(state: AgentState) -> str:
@@ -296,16 +324,6 @@ def get_coping_strategy(state: AgentState) -> str:
         return "social_pressure_coping"
     elif state["trigger_type"] == TriggerType.BOREDOM:
         return "boredom_coping"
-    elif state["trigger_type"] == TriggerType.NEGATIVE_EMOTIONS:
-        return "negative_emotions_coping"
-    elif state["trigger_type"] == TriggerType.FATIGUE:
-        return "fatigue_coping"
-    elif state["trigger_type"] == TriggerType.CELEBRATIONS:
-        return "celebrations_coping"
-    elif state["trigger_type"] == TriggerType.LONELINESS:
-        return "loneliness_coping"
-    elif state["trigger_type"] == TriggerType.HABITUAL_PATTERNS:
-        return "habitual_patterns_coping"
     else:
         return "default_coping"
 
@@ -314,132 +332,43 @@ def router(state: AgentState) -> AgentState:
     state["next_step"] = get_next_step(state)
     return state
 
-# # Create the workflow graph
-# def create_workflow() -> Graph:
-#     # Initialize workflow graph
-#     workflow = StateGraph(AgentState)
-    
-#     # Add nodes
-#     workflow.add_node("core_agent", create_core_agent())
-#     workflow.add_node("router", router)
-#     workflow.add_node("trigger_identification", create_trigger_identification_agent())
-    
-#     # Add specialized coping strategy nodes
-#     workflow.add_node("stress_coping", create_stress_coping_agent())
-#     workflow.add_node("social_pressure_coping", create_social_pressure_coping_agent())
-#     workflow.add_node("boredom_coping", create_boredom_coping_agent())
-#     # Add more specialized coping nodes for other trigger types
-    
-#     workflow.add_node("default_coping", create_default_coping_agent())
-#     workflow.add_node("end_conversation", lambda x: x)
-    
-#     # Add edges
-#     workflow.add_edge("core_agent", "router")
-#     workflow.set_entry_point("core_agent")
-    
-#     # Add conditional edges from router
-#     workflow.add_conditional_edges(
-#         "router",
-#         get_next_step,
-#         {
-#             "identify_trigger": "trigger_identification",
-#             "if not drink": "end_conversation"
-#         }
-#     )
-    
-#     # Add conditional edges from trigger identification to appropriate coping strategy
-#     workflow.add_conditional_edges(
-#         "trigger_identification",
-#         get_coping_strategy,
-#         {
-#             "stress_coping": "stress_coping",
-#             "social_pressure_coping": "social_pressure_coping",
-#             "boredom_coping": "boredom_coping",
-#             #TODO: Add edges for other trigger types
-#             "default_coping": "default_coping"
-#         }
-#     )
-    
-#     # Add edges from all coping strategies to end
-#     workflow.add_edge("stress_coping", "end_conversation")
-#     workflow.add_edge("social_pressure_coping", "end_conversation")
-#     workflow.add_edge("boredom_coping", "end_conversation")
-#     # Add edges for other coping strategies
-#     workflow.add_edge("default_coping", "end_conversation")
-    
-#     # Set the final node
-#     workflow.set_finish_point("end_conversation")
-    
-#     return workflow.compile()
 # Create the workflow graph (uncompiled version)
 def create_workflow() -> StateGraph:
-    # Initialize workflow graph
     workflow = StateGraph(AgentState)
     
-    # Add nodes
+    # Define available tools
+    tool_registry = {
+        "alcohol_calculator": alcohol_calculator,
+        "trigger_detector": create_trigger_identification_agent(),
+        "stress_coping_agent": create_stress_coping_agent(),
+        "social_pressure_coping_agent": create_social_pressure_coping_agent(),
+        "boredom_coping_agent": create_boredom_coping_agent(),
+    }
+    
+    # Create nodes
     workflow.add_node("core_agent", create_core_agent())
-    workflow.add_node("router", router)
-    workflow.add_node("trigger_identification", create_trigger_identification_agent())
+    workflow.add_node("tool_node", ToolNode(tool_registry))
+    workflow.add_node("end", lambda x: x)
     
-    # Add specialized coping strategy nodes
-    workflow.add_node("stress_coping", create_stress_coping_agent())
-    workflow.add_node("social_pressure_coping", create_social_pressure_coping_agent())
-    workflow.add_node("boredom_coping", create_boredom_coping_agent())
-    
-    # Add the missing coping strategy nodes for other trigger types
-    workflow.add_node("negative_emotions_coping", create_negative_emotions_coping_agent())
-    workflow.add_node("fatigue_coping", create_fatigue_coping_agent())
-    workflow.add_node("celebrations_coping", create_celebrations_coping_agent())
-    workflow.add_node("loneliness_coping", create_loneliness_coping_agent())
-    workflow.add_node("habitual_patterns_coping", create_habitual_patterns_coping_agent())
-    
-    workflow.add_node("default_coping", create_default_coping_agent())
-    workflow.add_node("end_conversation", lambda x: x)
-    
-    # Add edges
-    workflow.add_edge("core_agent", "router")
+    # Set entry point
     workflow.set_entry_point("core_agent")
     
-    # Add conditional edges from router
+    # Define edges
     workflow.add_conditional_edges(
-        "router",
-        get_next_step,
+        "core_agent",
+        lambda x: x["next_step"],
         {
-            "identify_trigger": "trigger_identification",
-            "if not drink": "end_conversation"
+            "tool_node": "tool_node",
+            "core_agent": "core_agent",
+            "end": "end"
         }
     )
     
-    # Add conditional edges from trigger identification to appropriate coping strategy
-    workflow.add_conditional_edges(
-        "trigger_identification",
-        get_coping_strategy,
-        {
-            "stress_coping": "stress_coping",
-            "social_pressure_coping": "social_pressure_coping",
-            "boredom_coping": "boredom_coping",
-            "negative_emotions_coping": "negative_emotions_coping",
-            "fatigue_coping": "fatigue_coping",
-            "celebrations_coping": "celebrations_coping",
-            "loneliness_coping": "loneliness_coping",
-            "habitual_patterns_coping": "habitual_patterns_coping",
-            "default_coping": "default_coping"
-        }
-    )
+    # After tools, always return to core_agent
+    workflow.add_edge("tool_node", "core_agent")
     
-    # Add edges from all coping strategies to end
-    workflow.add_edge("stress_coping", "end_conversation")
-    workflow.add_edge("social_pressure_coping", "end_conversation")
-    workflow.add_edge("boredom_coping", "end_conversation")
-    workflow.add_edge("negative_emotions_coping", "end_conversation")
-    workflow.add_edge("fatigue_coping", "end_conversation")
-    workflow.add_edge("celebrations_coping", "end_conversation")
-    workflow.add_edge("loneliness_coping", "end_conversation")
-    workflow.add_edge("habitual_patterns_coping", "end_conversation")
-    workflow.add_edge("default_coping", "end_conversation")
-    
-    # Set the final node
-    workflow.set_finish_point("end_conversation")
+    # Set finish point
+    workflow.set_finish_point("end")
     
     return workflow  # Return uncompiled workflow
 
@@ -460,7 +389,7 @@ def run_workflow(messages: List[BaseMessage], thread_id: str = None) -> Dict:
     initial_state = {
         "messages": messages,
         "next_step": "core_agent",
-        "drinking_status": None,
+        "met_goal": None,
         "trigger_type": None,
         "memory": {}
     }
@@ -481,57 +410,51 @@ def run_workflow(messages: List[BaseMessage], thread_id: str = None) -> Dict:
     
     return result
 
-def display_workflow_flowchart():
-    """
-    Generates and displays a flow chart of the drinking assessment workflow using graphviz and IPython.display.
-    This function is intended for use in Jupyter notebooks or IPython environments.
-    """
-    try:
-        from graphviz import Digraph
-        from IPython.display import Image, display
-    except ImportError:
-        print("graphviz and IPython.display are required to display the flow chart. Please install them with 'pip install graphviz ipython'.")
-        return
+# def display_workflow_flowchart():
+#     """
+#     Generates and displays a flow chart of the drinking assessment workflow using graphviz and IPython.display.
+#     This function is intended for use in Jupyter notebooks or IPython environments.
+#     """
+#     try:
+#         from graphviz import Digraph
+#         from IPython.display import Image, display
+#     except ImportError:
+#         print("graphviz and IPython.display are required to display the flow chart. Please install them with 'pip install graphviz ipython'.")
+#         return
 
-    dot = Digraph(comment='Enhanced Drinking Assessment Workflow')
+#     dot = Digraph(comment='Enhanced Drinking Assessment Workflow')
     
-    # Define nodes
-    dot.node('A', 'Start')
-    dot.node('B', 'Input: messages')
-    dot.node('C', 'Assess Drinking Status')
-    dot.node('D', 'Is user drinking?')
-    dot.node('E', 'Identify Trigger')
-    dot.node('F1', 'Stress Coping Strategies')
-    dot.node('F2', 'Social Pressure Strategies')
-    dot.node('F3', 'Boredom Strategies')
-    dot.node('F4', 'Negative Emotions Strategies')
-    dot.node('F5', 'Other Specialized Strategies')
-    dot.node('F6', 'Default Coping Strategies')
-    dot.node('G', 'Append AI response to messages')
-    dot.node('H', 'Return messages, status, trigger')
+#     # Define nodes
+#     dot.node('A', 'Start')
+#     dot.node('B', 'Input: messages')
+#     dot.node('C', 'Assess Drinking Status')
+#     dot.node('D', 'Is user drinking?')
+#     dot.node('E', 'Identify Trigger')
+#     dot.node('F1', 'Stress Coping Strategies')
+#     dot.node('F2', 'Social Pressure Strategies')
+#     dot.node('F3', 'Boredom Strategies')
+#     dot.node('F4', 'Default Coping Strategies')
+#     dot.node('G', 'Append AI response to messages')
+#     dot.node('H', 'Return messages, status, trigger')
 
-    # Define edges
-    dot.edge('A', 'B')
-    dot.edge('B', 'C')
-    dot.edge('C', 'D')
-    dot.edge('D', 'H', 'No')
-    dot.edge('D', 'E', 'Yes')
-    dot.edge('E', 'F1', 'Stress')
-    dot.edge('E', 'F2', 'Social Pressure')
-    dot.edge('E', 'F3', 'Boredom')
-    dot.edge('E', 'F4', 'Negative Emotions')
-    dot.edge('E', 'F5', 'Other Triggers')
-    dot.edge('E', 'F6', 'Unknown Trigger')
+#     # Define edges
+#     dot.edge('A', 'B')
+#     dot.edge('B', 'C')
+#     dot.edge('C', 'D')
+#     dot.edge('D', 'H', 'No')
+#     dot.edge('D', 'E', 'Yes')
+#     dot.edge('E', 'F1', 'Stress')
+#     dot.edge('E', 'F2', 'Social Pressure')
+#     dot.edge('E', 'F3', 'Boredom')
+#     dot.edge('E', 'F4', 'Unknown Trigger')
     
-    # Connect all coping strategy nodes to G
-    dot.edge('F1', 'G')
-    dot.edge('F2', 'G')
-    dot.edge('F3', 'G')
-    dot.edge('F4', 'G')
-    dot.edge('F5', 'G')
-    dot.edge('F6', 'G')
-    dot.edge('G', 'H')
+#     # Connect all coping strategy nodes to G
+#     dot.edge('F1', 'G')
+#     dot.edge('F2', 'G')
+#     dot.edge('F3', 'G')
+#     dot.edge('F4', 'G')
+#     dot.edge('G', 'H')
 
-    # Save and display
-    dot.render('enhanced_workflow_chart', format='png', cleanup=True)
-    display(Image(filename='enhanced_workflow_chart.png'))
+#     # Save and display
+#     dot.render('enhanced_workflow_chart', format='png', cleanup=True)
+#     display(Image(filename='enhanced_workflow_chart.png'))

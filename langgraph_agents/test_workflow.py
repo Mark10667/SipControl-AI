@@ -20,21 +20,6 @@ def main():
         "boredom": [
             HumanMessage(content="I've been so bored lately. There's nothing to do at home so I've just been drinking to pass the time."),
         ],
-        "negative_emotions": [
-            HumanMessage(content="I got some really bad news yesterday and I'm feeling depressed. I started drinking to numb the feelings."),
-        ],
-        "fatigue": [
-            HumanMessage(content="I've been so tired from working double shifts. I've been having a few drinks to help me unwind and fall asleep faster."),
-        ],
-        "celebrations": [
-            HumanMessage(content="My friend's birthday is this weekend and I know there will be lots of drinking. I always drink too much at parties."),
-        ],
-        "loneliness": [
-            HumanMessage(content="Living alone has been hard. I've started drinking in the evenings because I feel so lonely and it helps me forget."),
-        ],
-        "habitual_patterns": [
-            HumanMessage(content="I've realized I'm automatically reaching for a drink when I get home. It's become such a habit I don't even think about it anymore."),
-        ],
         "not_drinking": [
             HumanMessage(content="I've been feeling stressed but I'm trying to stay healthy by exercising and meditating instead of turning to alcohol."),
         ],
