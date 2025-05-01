@@ -21,14 +21,25 @@ We believe real-time, non-judgmental digital support can bridge the gap between 
 ## 🗂️ Features
 
 1. **Initial Intake Survey**: Customized goals (e.g., drink X% less per week)
-2. **Daily Self-Reporting**:
+<img width="392" alt="Screenshot 2025-05-01 at 1 35 37 AM" src="https://github.com/user-attachments/assets/96316bad-ac32-4fe0-8190-b13fa1aee6c1" />
+<img width="401" alt="Screenshot 2025-05-01 at 1 29 15 AM" src="https://github.com/user-attachments/assets/d94a1766-7661-4862-aeac-e12d32a24f20" />
+<img width="396" alt="Screenshot 2025-05-01 at 1 36 15 AM" src="https://github.com/user-attachments/assets/b5f216d0-a1aa-4ed0-a72a-26140c6a8a4b" />
+<img width="406" alt="Screenshot 2025-05-01 at 1 36 41 AM" src="https://github.com/user-attachments/assets/355f87a8-63cf-48c0-8c6e-c07cbb3fa9b8" />
+
+3. **Daily Self-Reporting**:
    - Users log their drinking at preferred times
    - AI extracts consumption details from natural language
    - Tracks against goals; celebrates milestones or supports improvement
-3. **Relapse-Prevention Conversations**:
+  <img width="395" alt="Screenshot 2025-05-01 at 1 34 58 AM" src="https://github.com/user-attachments/assets/12bf5d40-b02a-4700-9f46-b4b9aaf01ca2" />
+
+4. **Relapse-Prevention Conversations**:
    - When feeling triggered, users can talk to the agent for real-time support
-4. **Motivational Support**:
+<img width="284" alt="Screenshot 2025-05-01 at 1 38 56 AM" src="https://github.com/user-attachments/assets/7ce3f8df-1cbf-45e6-a1be-5205b53492c5" />
+
+5. **Motivational Support**:
    - Celebrates small wins: fewer drinks, skipped sessions, sober streaks
+<img width="396" alt="Screenshot 2025-05-01 at 1 30 52 AM" src="https://github.com/user-attachments/assets/fb5b3d36-07ca-4098-8265-58ec60789f4b" />
+
 
 ---
 
@@ -71,6 +82,7 @@ SipControl supports individuals struggling with alcohol use and looking for pers
 ---
 
 ## ⚙️ Agent Workflow DAG
+<img width="1374" alt="Screenshot 2025-05-01 at 1 37 58 AM" src="https://github.com/user-attachments/assets/437e4782-0b12-4c77-b759-8c49cc1f9e0b" />
 
 ### Core Components
 - **Core Agent**: Coordinates state, logic, and next steps
