@@ -10,8 +10,13 @@ from enum import Enum, auto
 from typing import Optional
 from datetime import datetime
 from langchain.tools import StructuredTool, Tool
+from langchain_core.tools import tool
 from typing_extensions import TypedDict
 import uuid
+import json
+import re
+from langgraph.prebuilt import ToolExecutor
+
 
 # Define trigger types as an Enum
 class TriggerType(str, Enum):
@@ -40,6 +45,7 @@ class AgentState(TypedDict):
     step_counter: int  # Add this new field
     debug_log: List[Dict[str, str]]  # Add this new field
     tool_output: Optional[Dict[str, Any]]  # Add this field to store tool results
+    tool_calls: List[BaseMessage]  # Just use List[BaseMessage] like messages
 
 # Add this function to track tool usage
 def log_step(state: AgentState, step_name: str, details: str) -> None:
@@ -140,19 +146,40 @@ def core_agent(state: AgentState) -> AgentState:
     chain = prompt | model
     
     response = chain.invoke({"messages": state["messages"]})
+
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~response in core_agent~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~", response)
     
+    # # Ensure the last message is an AIMessage with tool_calls
+    # if (
+    #     not isinstance(response, AIMessage)
+    #     or not response.tool_calls
+    # ):
+    #     raise ValueError(
+    #         "The last message must be an AIMessage with tool_calls."
+    #     )
     # Clean up the response content by removing extra spaces and normalizing newlines
-    cleaned_content = response.content.replace('\n', ' ').strip()
+    cleaned_content = response.content.strip()
     parts = [part.strip() for part in cleaned_content.split('---')]
     
-    status = parts[0].strip()
+    status = parts[0].strip().upper()  # Ensure status is uppercase and clean
     message = parts[1].strip() if len(parts) > 1 else ""
     tool_calls = parts[2].strip() if len(parts) > 2 else ""
     
+    # Validate status is either CONTINUE or END
+    if status not in ["CONTINUE", "END"]:
+        status = "CONTINUE"  # Default to continue if invalid
+    
+    state["conversation_ended"] = (status == "END")
+    state["messages"].append(AIMessage(content=message))
+
     if tool_calls:
-        state["next_step"] = "tool_node"
-    else:
-        state["next_step"] = "core_agent" if not state["conversation_ended"] else "end"
+        try:
+            # Store the tool calls as an AIMessage
+            state["tool_calls"].append(AIMessage(content=tool_calls))
+            state["next_step"] = "tool_node"
+        except Exception as e:
+            print(f"Error storing tool call: {e}")
+            state["next_step"] = "core_agent"
     
     # Move log_step here after next_step is determined
     log_step(state, "core_agent", f"""
@@ -160,9 +187,7 @@ def core_agent(state: AgentState) -> AgentState:
     Message: {message}
     Tool Calls: {tool_calls if tool_calls else 'None'}
     """)
-    
-    state["conversation_ended"] = (status == "END")
-    state["messages"].append(AIMessage(content=message))
+
     
     # Handle tool results if they exist
     if "tool_output" in state and state["tool_output"] is not None:  # Add None check
@@ -176,12 +201,18 @@ def core_agent(state: AgentState) -> AgentState:
                 state["met_goal"] = data["met_goal"]
             elif output_type == "trigger_result":
                 state["trigger_type"] = data["trigger_type"]
-                state["messages"].append(HumanMessage(content=data["explanation"]))
+                state["messages"].append(AIMessage(content=data["explanation"]))
             elif output_type == "coping_response":
                 state["messages"].append(AIMessage(content=data["response"]))
     
-    return state
+    print("\n=== Core Agent State Debug ===")
+    print(f"Status: {status}")
+    print(f"Next step: {state['next_step']}")
+    print(f"Step counter: {state['step_counter']}")
+    print(f"Conversation ended: {state['conversation_ended']}")
     
+    return state
+
 # Reference ABV table (can expand later)
 ABV_LOOKUP = {
     "beer": 0.05,
@@ -206,18 +237,16 @@ VOLUME_LOOKUP = {
 def alcohol_calculator(
     beverage_type: str,
     quantity: int,
-    unit: str,
-    abv: float = None,
-    daily_goal_ml: float = 30.0
+    unit: str
 ) -> Dict:
     """Calculate alcohol consumption and return results"""
 
+    daily_goal_ml = 30.0
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~alcohol_calculator~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     beverage_type = beverage_type.lower()
 
     # Infer defaults if needed
-    if abv is None:
-        abv = ABV_LOOKUP.get(beverage_type, 0.12)
+    abv = ABV_LOOKUP.get(beverage_type, 0.12)
     
     volume_ml_per_unit = VOLUME_LOOKUP.get(unit, 150)
     total_volume = quantity * volume_ml_per_unit
@@ -436,31 +465,31 @@ def create_tool_registry():
             name="alcohol_calculator",
             description="Calculate alcohol consumption and compare to daily goal"
         ),
-        Tool.from_function(
-            func=trigger_detector,
-            name="trigger_detector",
-            description="Identify triggers for drinking behavior"
-        ),
-        Tool.from_function(
-            func=stress_coping,
-            name="stress_coping",
-            description="Provide stress management strategies"
-        ),
-        Tool.from_function(
-            func=social_pressure_coping,
-            name="social_pressure_coping",
-            description="Help with social pressure situations"
-        ),
-        Tool.from_function(
-            func=boredom_coping,
-            name="boredom_coping",
-            description="Suggest activities to combat boredom"
-        ),
-        Tool.from_function(
-            func=default_coping,
-            name="default_coping",
-            description="Provide general coping strategies"
-        )
+        # Tool.from_function(
+        #     func=trigger_detector,
+        #     name="trigger_detector",
+        #     description="Identify triggers for drinking behavior"
+        # ),
+        # Tool.from_function(
+        #     func=stress_coping,
+        #     name="stress_coping",
+        #     description="Provide stress management strategies"
+        # ),
+        # Tool.from_function(
+        #     func=social_pressure_coping,
+        #     name="social_pressure_coping",
+        #     description="Help with social pressure situations"
+        # ),
+        # Tool.from_function(
+        #     func=boredom_coping,
+        #     name="boredom_coping",
+        #     description="Suggest activities to combat boredom"
+        # ),
+        # Tool.from_function(
+        #     func=default_coping,
+        #     name="default_coping",
+        #     description="Provide general coping strategies"
+        # )
     ]
 
 # Then update the create_workflow function
@@ -472,16 +501,56 @@ def create_workflow() -> StateGraph:
     
     # Create ToolNode without output_key
     tools = create_tool_registry()
-    tool_node = ToolNode(tools)  # Remove the output_key parameter
+    tool_node = ToolNode(tools)
     
-    # Add a wrapper function to store tool output in state
+
     def tool_node_with_state_update(state: AgentState):
-        # Execute tool and get result
-        result = tool_node.invoke(state)
-        # Store the result in state
-        state["tool_output"] = result
+        print("\n=== Tool Node State Debug ===")
+        print(f"Current next_step: {state['next_step']}")
+        print(f"Tool calls available: {bool(state['tool_calls'])}")
+        print(f"Step counter: {state['step_counter']}")
+        
+        if not state["tool_calls"]:
+            print("No tool calls found, returning state")
+            return state
+        
+        try:
+            # Get the raw tool call string from the last message
+            tool_calls = state["tool_calls"][-1].content
+            print("\n=== Tool Call Debug ===")
+            print(f"Raw tool_calls from message: {tool_calls}")
+            
+            # Clean and parse the tool call
+            tool_calls = re.sub(r'^Tool calls needed:\s*', '', tool_calls, flags=re.IGNORECASE).strip()
+            tool_call = json.loads(tool_calls)
+            print(f"Parsed tool_call: {tool_call}")
+            
+            # Convert quantity to int for alcohol_calculator
+            if tool_call["name"] == "alcohol_calculator":
+                tool_call["parameters"]["quantity"] = int(tool_call["parameters"]["quantity"])
+                print(f"Converted parameters: {tool_call['parameters']}")
+            
+            print(f"\nInvoking tool: {tool_call['name']}")
+            
+            # Create a ToolExecutor for our tools
+            tool_executor = ToolExecutor(create_tool_registry())
+            
+            # Execute the tool directly using ToolExecutor
+            result = tool_executor.invoke(tool_call)
+            print(f"\nTool execution result: {result}")
+            
+            # Store the result directly
+            state["tool_output"] = result
+            
+        except Exception as e:
+            print(f"\n[Tool Execution Error] {str(e)}")
+            print(f"Error type: {type(e)}")
+            if hasattr(e, '__traceback__'):
+                import traceback
+                print(f"Traceback:\n{traceback.format_exc()}")
+        
         return state
-    
+ 
     workflow.add_node("tool_node", tool_node_with_state_update)
     workflow.add_node("end", lambda x: x)
     
@@ -534,6 +603,7 @@ def run_workflow(messages: List[BaseMessage], thread_id: str = None) -> Dict:
         "conversation_ended": False,
         "debug_log": [],  # Add this field
         "tool_output": None,  # Initialize as None
+        "tool_calls": [],  # Initialize as empty list instead of None
     }
     
     # Compile the workflow with memory saver
