@@ -11,6 +11,7 @@
 ---
 
 ## ✨ Description
+![3161746082431_ pic_hd](https://github.com/user-attachments/assets/617c16b7-a312-4a65-adf4-c0102286c926)
 
 SipControl is a behavioral health AI agent designed to help individuals reduce or quit alcohol consumption through personalized, empathetic support. The agent combines daily self-reflection, proactive nudges, habit tracking, and relapse-prevention tools to guide users through their unique journey — one day at a time.
 
