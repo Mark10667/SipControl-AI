@@ -1,0 +1,102 @@
+/* src/components/Chat/Message.css */
+.message {
+    display: flex;
+    margin-bottom: 15px;
+    align-items: flex-end;
+    flex-direction: column;
+  }
+  
+/*
+.message.user {
+    justify-content: flex-end;
+}
+  
+.message.bot {
+    justify-content: flex-start;
+}
+*/
+
+.message.user {
+    align-items: flex-end;
+    text-align: left;
+}
+  
+.message.bot {
+    align-items: flex-start;
+}
+  
+.message-bubble {
+    padding: 12px 15px;
+    border-radius: 18px;
+    font-size: 16px;
+    line-height: 1.4;
+}
+  
+  .user .message-bubble {
+    background-color: #d5e8e3; /* Light teal */
+    color: #333;
+    border-bottom-right-radius: 5px;
+    margin-right: 10px;
+    text-align: left;
+    max-width: 75%;
+  }
+  
+  .bot .message-bubble {
+    background-color: #f9f0d9; /* Light cream */
+    color: #333;
+    border-bottom-left-radius: 5px;
+    width: 75%;
+    text-align: left;
+    
+  }
+  
+  .user-avatar {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background-color: #ccc;
+    background-image: url('https://mediaproxy.salon.com/width/1200/https://media2.salon.com/2017/08/bojack-horseman.jpg');
+    background-size: cover;
+  }
+
+.message-avatar.user {
+    flex-direction: row;
+    display: flex;
+    justify-content: right;
+    max-width: 90%;
+    align-items: self-start;
+}
+
+.typing {
+    min-width: 50px;
+  }
+  
+.typing .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #888;
+    margin: 0 3px;
+    animation: pulse 1.5s infinite ease-in-out;
+}
+  
+  .typing .dot:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  
+  .typing .dot:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+  
+  @keyframes pulse {
+    0%, 50%, 100% {
+      transform: scale(1);
+      opacity: 0.5;
+    }
+    25%, 75% {
+      transform: scale(1.2);
+      opacity: 1;
+    }
+  }
+  

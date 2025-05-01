@@ -1,0 +1,308 @@
+/* src/styles/Home.css */
+.home-page {
+    min-height: 100vh;
+    background-color: var(--light-bg);
+  }
+  
+  /* Header */
+  .home-header {
+    background-color: var(--primary-color);
+    padding: 1.5rem 1rem;
+    color: white;
+  }
+  
+  .user-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+  
+  .user-info h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+  
+  .avatar-placeholder {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.3);
+  }
+  
+  .mode-selector {
+    display: flex;
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 0.25rem;
+  }
+  
+  .mode-button {
+    flex: 1;
+    padding: 0.5rem;
+    border: none;
+    background: transparent;
+    color: white;
+    font-size: 0.9rem;
+    text-align: center;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  
+  .mode-button.active {
+    background-color: white;
+    color: var(--primary-color);
+    font-weight: 500;
+  }
+  
+  /* Content */
+  .home-content {
+    padding: 1rem;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  
+  section {
+    margin-bottom: 1.5rem;
+  }
+  
+  /* Daily Stats */
+  .daily-stats {
+    display: flex;
+    align-items: center;
+    background-color: white;
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  
+  .stat-circle {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin-right: 1rem;
+  }
+  
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    line-height: 1;
+  }
+  
+  .stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+  }
+  
+  .stat-description {
+    flex: 1;
+  }
+  
+  .stat-description p {
+    margin: 0;
+    line-height: 1.4;
+  }
+  
+  .stat-subtitle {
+    color: var(--gray-text);
+    font-size: 0.9rem;
+  }
+  
+  /* Savings */
+  .savings-card {
+    background-color: white;
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  
+  .savings-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .savings-label {
+    font-size: 0.8rem;
+    color: var(--gray-text);
+    margin-bottom: 0.5rem;
+  }
+  
+  .savings-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--dark-text);
+  }
+  
+  /* Goal Progress */
+  .goal-progress {
+    background-color: white;
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+  
+  .progress-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 500;
+  }
+  
+  .progress-percentage {
+    font-weight: 600;
+    color: var(--primary-color);
+  }
+  
+  .progress-bar-container {
+    height: 8px;
+    background-color: #e0e0e0;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+  }
+  
+  .progress-bar-fill {
+    height: 100%;
+    background-color: var(--primary-color);
+    border-radius: 4px;
+  }
+  
+  .progress-stats {
+    display: flex;
+    justify-content: space-between;
+  }
+  
+  .progress-stat {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .progress-stat .stat-label {
+    font-size: 0.8rem;
+    color: var(--gray-text);
+    text-transform: none;
+    margin-bottom: 0.25rem;
+  }
+  
+  .progress-stat .stat-value {
+    font-size: 0.9rem;
+    color: var(--dark-text);
+  }
+  
+  /* Mood Tracker */
+  .mood-tracker {
+    background-color: white;
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  
+  .mood-tracker h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1rem;
+    font-weight: 500;
+  }
+  
+  .mood-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 1rem;
+  }
+  
+  .mood-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid #e0e0e0;
+    background-color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  
+  .mood-button.selected {
+    border-color: var(--primary-color);
+    background-color: rgba(130, 190, 192, 0.1);
+  }
+  
+  .mood-emoji {
+    font-size: 1.25rem;
+  }
+  
+  .save-mood-button {
+    width: 100%;
+    padding: 0.75rem;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-bottom: 1rem;
+  }
+  
+  .mood-history h4 {
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+  }
+  
+  .mood-history-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .mood-history-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .mood-history-emoji {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+  }
+  
+  .mood-history-time {
+    font-size: 0.7rem;
+    color: var(--gray-text);
+  }
+  
+  /* Chat Button */
+  .chat-button-container {
+    margin-top: 1rem;
+    text-align: center;
+    display: flex;
+    justify-content: space-around;
+  }
+  
+  .chat-button {
+    background-color: var(--accent-color);
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(233, 184, 127, 0.3);
+  }
