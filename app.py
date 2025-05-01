@@ -43,6 +43,9 @@ relapse_support_collection = db["relapse_support"]
 motivations_collection = db["motivations"]
 notifications_collection = db["notifications"]
 
+# Add agent memory collection
+agent_memory_collection = db["agent_memory"]
+
 # Initialize Azure Blob Storage client
 blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
 blob_container_client = blob_service_client.get_container_client(BLOB_CONTAINER_NAME)
@@ -696,6 +699,21 @@ def check_and_create_milestone(user_id, streak_count, alcohol_consumed):
             "status": "sent"
         }
         notifications_collection.insert_one(notification)
+
+def store_agent_memory(user_id, memory):
+    """Store agent memory in MongoDB"""
+    memory_doc = {
+        "memory_id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "memory": memory,
+        "timestamp": datetime.datetime.now()
+    }
+    agent_memory_collection.insert_one(memory_doc)
+
+def get_agent_memory(user_id, limit=10):
+    """Retrieve agent memory from MongoDB"""
+    memory_docs = agent_memory_collection.find({"user_id": user_id}).sort("timestamp", -1).limit(limit)
+    return list(memory_docs)
 
 if __name__ == '__main__':
     app.run(debug=True) 
