@@ -1,0 +1,70 @@
+/* src/components/Chat/TipsList.css */
+.tips-list {
+    width: 70%;
+    margin-top: 15px;
+    background-color: #f9f0d9;
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    box-sizing: border-box;
+    text-align: left;
+  }
+  
+  .tips-list h3 {
+    margin-top: 0;
+    font-size: 16px;
+    margin-bottom: 15px;
+    color: #555;
+  }
+  
+  .tip-item {
+    margin-bottom: 15px;
+  }
+  
+  .tip-item h4 {
+    margin: 0 0 8px 0;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  
+  .tip-item p {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+  }
+  
+  .tip-item ul {
+    margin: 5px 0;
+    padding-left: 20px;
+  }
+  
+  .tip-item li {
+    font-size: 14px;
+    margin-bottom: 5px;
+  }
+  
+  .resources-link {
+    margin-top: 15px;
+    border-top: 1px solid #e0d0b0;
+    padding-top: 10px;
+  }
+  
+  .video-link {
+    background-color: #f0e8d0;
+    border-radius: 8px;
+    padding: 5px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  
+  .video-link img {
+    width: 80px;
+    height: 45px;
+    border-radius: 4px;
+    margin-right: 10px;
+  }
+  
+  .video-link p {
+    font-size: 13px;
+    margin: 0;
+  }

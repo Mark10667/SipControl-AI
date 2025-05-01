@@ -1,0 +1,82 @@
+/* src/pages/ChatPage.css */
+.chat-page {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 480px;
+    margin: 0 auto;
+    background-color: #1a1a1a;
+    position: relative;
+    color: #fff;
+  }
+  
+  .chat-header {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    background-color: #2a2a2a;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+  }
+  
+  .back-button {
+    background: none;
+    border: none;
+    font-size: 20px;
+    margin-right: 35px;
+    cursor: pointer;
+    color: #fff;
+  }
+  
+  .chat-header h1 {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 0;
+  }
+
+  .tips-overlay {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 480px;
+    max-height: 80vh;
+    background-color: #2a2a2a;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    overflow-y: auto;
+  }
+
+  .close-tips {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 5px;
+    line-height: 1;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+  }
+
+  .close-tips:hover {
+    opacity: 1;
+  }
+
+  /* Add overlay backdrop */
+  .tips-overlay::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: -1;
+  }

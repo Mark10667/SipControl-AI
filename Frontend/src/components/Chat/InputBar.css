@@ -1,0 +1,62 @@
+/* src/components/Chat/InputBar.css */
+.input-bar {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+    background-color: #fff;
+  }
+
+form {
+    border: #fff 2px solid;
+    border-radius: 40px;
+    margin: 10px;
+    margin-bottom: 40px;
+}
+  
+.message-input {
+    flex: 1;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 20px;
+    background-color: #fff;
+    font-size: 16px;
+    margin: 0 10px;
+  }
+  
+  .message-input:focus {
+    outline: none;
+  }
+  
+  .voice-button, .send-button {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    /* color: #75a99c;  Teal */
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    color:#333;
+  }
+
+input {
+    color: #333;
+}
+
+.message-input:disabled,
+.voice-button:disabled,
+.send-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+form:hover {
+    border: #d5e8e3 2px solid;
+}
+
+.input-icon-mic {
+    z-index: 2;
+}
