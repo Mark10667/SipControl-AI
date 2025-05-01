@@ -1,5 +1,8 @@
 
 # 🍷 SipControl: Behavioral Health AI Agent for Alcohol Reduction
+<iframe src="https://drive.google.com/file/d/1KJtiffcNV1Ta-SmmyRBgRwlivGvMR_-h/preview" width="640" height="480" allowfullscreen></iframe>
+
+[![AI-generated Tips & Tracking](path/to/your/thumbnail.jpg)]([))
 
 ## 👥 Team Members
 - **Mark**: Product & AI Agent ([LinkedIn](https://www.linkedin.com/in/mark-yecheng-ma/))
